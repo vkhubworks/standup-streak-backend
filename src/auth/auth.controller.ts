@@ -8,6 +8,7 @@ export class AuthController {
 
   @Post('register')
   async register(@Body() dto: RegisterDto, @Res() res) {
+    console.log('Register API triggered for email:', dto.email);
     const result = await this.authService.register(dto);
     if ('error' in result) return res.status(400).json(result);
     return res.json(result);
