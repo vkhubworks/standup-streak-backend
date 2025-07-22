@@ -30,4 +30,36 @@ export class AuthController {
     if ('error' in result) return res.status(400).json(result);
     return res.json(result);
   }
+
+  @Get('oauth/google-login')
+  async googleLoginOAuth(@Res() res) {
+    return this.authService.getGoogleOAuthUrl(res, 'login');
+  }
+
+  @Get('oauth/google-signup')
+  async googleSignupOAuth(@Res() res) {
+    return this.authService.getGoogleOAuthUrl(res, 'signup');
+  }
+
+  @Get('callback/google')
+  async googleCallback(@Query() query, @Res() res) {
+    // Pass mode from state or query
+    const mode = query.state || query.mode || 'login';
+    return this.authService.handleOAuthCallback({ ...query, mode }, res);
+  }
+
+  @Post('google')
+  async googleAuthPost(@Body('code') code: string, @Res() res) {
+    // Reuse the same logic as the callback, but with code from body
+    return this.authService.handleOAuthCallback({ code }, res);
+  }
+
+  @Post('login')
+  async login(@Body() body, @Res() res) {
+    const result = await this.authService.login(body);
+    if (result.error) {
+      return res.status(result.statusCode || 400).json({ error: result.error });
+    }
+    return res.json(result);
+  }
 } 

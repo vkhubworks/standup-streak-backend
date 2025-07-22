@@ -12,8 +12,17 @@ export class User extends Document {
   @Prop()
   password: string;
 
-  @Prop({ default: 'local' })
-  provider: string;
+  @Prop()
+  google_id?: string;
+
+  @Prop()
+  slack_id?: string;
+
+  @Prop()
+  profile_picture?: string;
+
+  @Prop({ default: 'manual' })
+  signup_method: string;
 
   // createdAt will be auto-managed by Mongoose
   createdAt: Date;
