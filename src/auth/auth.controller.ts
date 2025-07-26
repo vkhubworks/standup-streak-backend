@@ -24,6 +24,29 @@ export class AuthController {
     return this.authService.getSlackOAuthUrl(res);
   }
 
+  @Get('oauth/slack-login')
+  async slackLoginOAuth(@Res() res) {
+    return this.authService.getSlackOAuthUrl(res, 'login');
+  }
+
+  @Get('oauth/slack-signup')
+  async slackSignupOAuth(@Res() res) {
+    return this.authService.getSlackOAuthUrl(res, 'signup');
+  }
+
+  @Get('callback/slack')
+  async slackCallback(@Query() query, @Res() res) {
+    // Pass mode from state or query
+    const mode = query.state || query.mode || 'login';
+    return this.authService.handleSlackOAuthCallback({ ...query, mode }, res);
+  }
+
+  @Post('slack')
+  async slackAuthPost(@Body('code') code: string, @Res() res) {
+    // Reuse the same logic as the callback, but with code from body
+    return this.authService.handleSlackOAuthCallback({ code }, res);
+  }
+
   @Get('oauth/callback')
   async oauthCallback(@Query() query, @Res() res) {
     const result = await this.authService.handleOAuthCallback(query, res);

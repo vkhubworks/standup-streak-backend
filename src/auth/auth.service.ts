@@ -67,9 +67,118 @@ export class AuthService {
     return res.json({ url });
   }
 
-  async getSlackOAuthUrl(res) {
-    // TODO: Implement Slack OAuth redirect
-    return res.json({ url: 'https://slack.com/oauth/v2/authorize?...' });
+  async getSlackOAuthUrl(res, mode: 'login' | 'signup' = 'login') {
+    const clientId = this.configService.get<string>('SLACK_CLIENT_ID');
+    const redirectUri = this.configService.get<string>('SLACK_REDIRECT_URI');
+    
+    if (!clientId || !redirectUri) {
+      return res.status(500).json({ error: 'Slack OAuth is not configured properly.' });
+    }
+    
+    // Define the scopes needed for user identification
+    const scope = ['identity.basic', 'identity.email', 'identity.avatar'].join(' ');
+    
+    // Construct the Slack OAuth URL
+    const url =
+      'https://slack.com/oauth/v2/authorize' +
+      `?client_id=${clientId}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&response_type=code` +
+      `&scope=${encodeURIComponent(scope)}` +
+      `&state=${mode}`;  // Pass mode as state parameter
+    
+    return res.json({ url });
+  }
+
+  async handleSlackOAuthCallback(query, res) {
+    const code = query.code;
+    const mode = query.mode || 'login';
+    
+    if (!code) {
+      return { error: 'No code provided' };
+    }
+    
+    const clientId = this.configService.get<string>('SLACK_CLIENT_ID');
+    const clientSecret = this.configService.get<string>('SLACK_CLIENT_SECRET');
+    const redirectUri = this.configService.get<string>('SLACK_REDIRECT_URI');
+    
+    if (!clientId || !clientSecret || !redirectUri) {
+      return res.status(500).json({ error: 'Slack OAuth is not configured properly.' });
+    }
+    
+    try {
+      // Exchange code for tokens
+      const tokenRes = await axios.post(
+        'https://slack.com/api/oauth.v2.access',
+        new URLSearchParams({
+          code: String(code),
+          client_id: String(clientId),
+          client_secret: String(clientSecret),
+          redirect_uri: String(redirectUri),
+        }),
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+      );
+      
+      if (!tokenRes.data.ok) {
+        throw new Error(`Slack API error: ${tokenRes.data.error}`);
+      }
+      
+      const { access_token, authed_user } = tokenRes.data;
+      const { id: slack_id } = authed_user;
+      
+      // Get user info
+      const userInfoRes = await axios.get('https://slack.com/api/users.identity', {
+        headers: {
+          Authorization: `Bearer ${access_token}`,
+        },
+      });
+      
+      if (!userInfoRes.data.ok) {
+        throw new Error(`Slack API error: ${userInfoRes.data.error}`);
+      }
+      
+      const { user } = userInfoRes.data;
+      const { name, email, image_512: profile_picture } = user;
+      
+      // Log attempt
+      console.log(`[Slack OAuth] ${mode} attempt for email: ${email}, slack_id: ${slack_id}`);
+      
+      // Find user by Slack ID or email
+      let userRecord = await this.usersService.findByProviderId('slack', slack_id);
+      if (!userRecord && email) {
+        userRecord = await this.usersService.findByEmail(email);
+      }
+      
+      if (mode === 'login') {
+        if (!userRecord) {
+          return res.redirect(`http://localhost:3001/auth/callback?error=No account found with this Slack login. Please sign up first.&mode=login`);
+        }
+        // Issue JWT, redirect with token
+        const jwtPayload = { sub: userRecord._id, email: userRecord.email, name: userRecord.name, signup_method: userRecord.signup_method };
+        const token = this.jwtService.sign(jwtPayload);
+        return res.redirect(`http://localhost:3001/auth/callback?token=${token}`);
+      } else if (mode === 'signup') {
+        if (userRecord) {
+          return res.redirect(`http://localhost:3001/auth/callback?error=This Slack account is already registered. Please log in instead.&mode=signup`);
+        }
+        // Create user, issue JWT, redirect with token
+        userRecord = await this.usersService.createUser({
+          name,
+          email,
+          slack_id,
+          profile_picture,
+          signup_method: 'slack',
+        });
+        const jwtPayload = { sub: userRecord._id, email: userRecord.email, name: userRecord.name, signup_method: userRecord.signup_method };
+        const token = this.jwtService.sign(jwtPayload);
+        return res.redirect(`http://localhost:3001/auth/callback?token=${token}`);
+      } else {
+        return res.redirect(`http://localhost:3001/auth/callback?error=Invalid mode for Slack OAuth.&mode=${mode}`);
+      }
+    } catch (err) {
+      console.error('[Slack OAuth] Signup/Login error:', err);
+      return res.status(400).json({ error: 'Slack OAuth failed', details: err?.response?.data || err.message });
+    }
   }
 
   async handleOAuthCallback(query, res) {
