@@ -18,6 +18,13 @@ export class Team extends Document {
   @Prop({ type: [String], default: [] })
   pendingInvites: string[];
 
+  @Prop({ type: [{ email: String, invitedAt: Date, status: String }], default: [] })
+  inviteHistory: {
+    email: string;
+    invitedAt: Date;
+    status: string;
+  }[];
+
   // Schedule Configuration
   @Prop({ required: true, default: '09:00' })
   standupTime: string;

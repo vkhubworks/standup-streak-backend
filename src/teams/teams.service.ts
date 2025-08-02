@@ -7,12 +7,14 @@ import { Phase1TeamSetupDto } from './dto/phase1-team-setup.dto';
 import { Phase2ScheduleConfigDto } from './dto/phase2-schedule-config.dto';
 import { Phase3TeamMembersDto } from './dto/phase3-team-members.dto';
 import { Phase4GoalsTargetsDto } from './dto/phase4-goals-targets.dto';
+import { InvitesService } from '../invites/invites.service';
 
 @Injectable()
 export class TeamsService {
   constructor(
     @InjectModel(Team.name) private teamModel: Model<Team>,
     @InjectModel(User.name) private userModel: Model<User>,
+    private invitesService: InvitesService,
   ) {}
 
   // Get onboarding progress for a user
@@ -124,28 +126,41 @@ export class TeamsService {
 
     // Remove duplicates
     const uniqueEmails = [...new Set(data.memberEmails)];
-    
     // Check for existing users
     const existingUsers = await this.userModel.find({
       email: { $in: uniqueEmails }
     });
-
     const existingEmails = existingUsers.map(user => user.email);
     const newEmails = uniqueEmails.filter(email => !existingEmails.includes(email));
-
     // Add existing users to members
     const existingUserIds = existingUsers.map(user => user._id);
     team.members = [...new Set([...team.members, ...existingUserIds])] as Types.ObjectId[];
-    
     // Add new emails to pending invites
     team.pendingInvites = newEmails;
     team.onboardingStep = 3;
-    
     await team.save();
-    return { 
+
+    // Send invitations automatically
+    let inviteResult: { sent: number; failed: string[] } = { sent: 0, failed: [] };
+    if (newEmails.length > 0) {
+      try {
+        inviteResult = await this.invitesService.sendTeamInvites(
+          (team._id as Types.ObjectId).toString(),
+          newEmails.map(email => ({ email, role: 'member' })),
+          userId,
+        );
+      } catch (error) {
+        console.error('Failed to send invites:', error);
+        inviteResult.failed = newEmails;
+      }
+    }
+
+    return {
       success: true,
       existingUsers: existingEmails.length,
-      pendingInvites: newEmails.length
+      pendingInvites: newEmails.length,
+      invitesSent: inviteResult.sent,
+      invitesFailed: inviteResult.failed,
     };
   }
 
